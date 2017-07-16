@@ -208,41 +208,14 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 	
 		var worksheets = forceArray(response.sheets);		// not sure what this does -- seems to just initialize the array to []
 		worksheets.forEach( function( ws_data ) {
-			ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) ); //## TODO
+			ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) );
 		});
 		self.info = ss_data;
 		self.worksheets = ss_data.worksheets;
 		cb( null, ss_data );
 	
 	}
-	});
-	
-	
-	
-	//## OLD:
-	/*
-    self.makeFeedRequest( ["worksheets", ss_key], 'GET', null, function(err, data, xml) {
-      if ( err ) return cb( err );
-      if (data===true) {
-        return cb(new Error('No response to getInfo call'))
-      }
-      var ss_data = {
-        id: data.id,
-        title: data.title,
-        updated: data.updated,
-        author: data.author,
-        worksheets: []
-      }
-      
-      var worksheets = forceArray(data.entry);
-      worksheets.forEach( function( ws_data ) {
-        ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) );
-      });
-      self.info = ss_data;
-      self.worksheets = ss_data.worksheets;
-      cb( null, ss_data );
-    });
-    */
+	});		
   }
 
   
@@ -299,8 +272,9 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
   }
   */
 
+  //## Complete
   this.getRows = function( worksheet_id, opts, cb ){
-    // the first row is used as titles/keys and is not included
+    // The first row is used as titles/keys and is not included (## is now included)
 
     // opts is optional
     if ( typeof( opts ) == 'function' ){
@@ -308,13 +282,15 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       opts = {};
     }
 
-    //## NEW:
+    // Form request
     var A1Range = '' + worksheet_id;		// e.g. "Sheet1!A1:B2"
 	var getReq = {
 		auth: jwt_client,
 		spreadsheetId: ss_key,
-		range: A1Range
+		range: A1Range,		
 	};
+	
+	// Request data from Google Sheets
 	sheets.spreadsheets.values.get(getReq, function(err, response) {
 		if (err) {			
 			console.log('getRows: ERROR: ' + err);
@@ -326,6 +302,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 			var range = response.range;						// e.g. "range": "'Class Data'!A1:Z988",
 			var majorDimension = response.majorDimension;	// e.g. "majorDimension": "ROWS",
 		
+			// Read rows
 			var rows = [];
 			var entries = forceArray( response.values );
 			
@@ -337,59 +314,13 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 			
 			// Populate spreadsheet rows
 			for (var rowNum=0; rowNum<entries.length; rowNum++) {
-				rows.push( new SpreadsheetRow( self, rowNum, entries[rowNum], header ) ); //## TODO
+				rows.push( new SpreadsheetRow( jwt_client, ss_key, worksheet_id, rowNum, entries[rowNum], header ) ); //## TODO
 			}
 			
 			// Callback
 			cb(null, rows);	
 		}
-	});
-    
-    
-    //## OLD:
-	/* 
-    var query  = {}
-
-    if ( opts.offset ) query["start-index"] = opts.offset;
-    else if ( opts.start ) query["start-index"] = opts.start;
-
-    if ( opts.limit ) query["max-results"] = opts.limit;
-    else if ( opts.num ) query["max-results"] = opts.num;
-
-    if ( opts.orderby ) query["orderby"] = opts.orderby;
-    if ( opts.reverse ) query["reverse"] = 'true';
-    if ( opts.query ) query['sq'] = opts.query;
-
-    self.makeFeedRequest( ["list", ss_key, worksheet_id], 'GET', query, function(err, data, xml) {
-      if ( err ) return cb( err );
-      if (data===true) {
-        return cb(new Error('No response to getRows call'))
-      }
-
-      // gets the raw xml for each entry -- this is passed to the row object so we can do updates on it later
-
-      var entries_xml = xml.match(/<entry[^>]*>([\s\S]*?)<\/entry>/g);
-
-
-      // need to add the properties from the feed to the xml for the entries
-      var feed_props = _.clone(data.$);
-      delete feed_props['gd:etag'];
-      var feed_props_str = _.reduce(feed_props, function(str, val, key){
-        return str+key+'=\''+val+'\' ';
-      }, '');
-      entries_xml = _.map(entries_xml, function(xml){
-        return xml.replace('<entry ', '<entry '+feed_props_str);
-      });
-
-      var rows = [];
-      var entries = forceArray( data.entry );
-      var i=0;
-      entries.forEach( function( row_data ) {
-        rows.push( new SpreadsheetRow( self, row_data, entries_xml[ i++ ] ) );
-      });
-      cb(null, rows);
-    });
-    */
+	});        
   }
 
   /*
@@ -571,53 +502,69 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
 
 // Storage class for a spreadsheet row
 //## Note: 'xml' is unused
-var SpreadsheetRow = function( spreadsheet, rowIdx, data, header){
+var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header){
   var self = this;
-  this.rowIdx = rowIdx;
-  this.values = data;
-  this.header = header;
+  this._auth = auth;
+  this._ss_key = ss_key;
+  this._worksheetId = worksheetId;
+  this._rowIdx = rowIdx;
+  //this.values = data;
+  this._header = header;
   
   // Create map
-  this.map = {};
+  //this.map = {};
   for (var i=0; i<header.length; i++) {
 	var sanitizedLabel = sanitizeHeaderStr(header[i]);
-	this.map[sanitizedLabel] = this.values[i];
+	this[sanitizedLabel] = data[i];
   }
   
-  
-  //self['_xml'] = xml;		// Depricate
-    
-  /*
-  //## I am not entirely sure what this does, but I think it's to make a dictionary out of the data using the row headers
-  Object.keys(data).forEach(function(key) {
-    var val = data[key];
-    if(key.substring(0, 4) === "gsx:") {
-      if(typeof val === 'object' && Object.keys(val).length === 0) {
-        val = null;
-      }
-      if (key == "gsx:") {
-        self[key.substring(0, 3)] = val;
-      } else {
-        self[key.substring(4)] = val;
-      }
-    } else {
-      if (key == "id") {
-        self[key] = val;
-      } else if (val['_']) {
-        self[key] = val['_'];
-      } else if ( key == 'link' ){
-        self['_links'] = [];
-        val = forceArray( val );
-        val.forEach( function( link ){
-          self['_links'][ link['$']['rel'] ] = link['$']['href'];
-        });
-      }
-    }
-  }, this);
-  */
 
-  /*
-  self.save = function( cb ){    
+  // Save this row to Google Maps
+  self.save = function( cb ) {    
+
+	// Convert from map to flat values array
+	var values = [];
+	for (var i=0; i<this._header.length; i++) {
+		var sanitizedLabel = sanitizeHeaderStr(this._header[i]);
+		values.push( this[sanitizedLabel] );
+	}		
+	  
+	// Create ValueRange GoogleSheets API v4 structure for this row
+	//var A1Range = '' + worksheet_id + '!' + XYtoA1(0, this.rowIdx) + ':' + XYtoA1(this.values.length-1, this.rowIdx);		// e.g. "Sheet1!A1:B2"
+	var A1Range = '' + this._worksheetId + '!' + (this._rowIdx+1) + ':' + (this._rowIdx+1);		// e.g. "Sheet1!A1:B2"
+	var valueRange = {
+		range: A1Range,
+		majorDimension: 'ROWS',
+		values: [values],
+	};
+	
+	var request = {
+		auth: this._auth,
+		spreadsheetId: this._ss_key,
+		range: A1Range,
+		valueInputOption: 'RAW',
+		resource: valueRange
+	}
+	
+	//console.log("Save Request: \n" + JSON.stringify( request, null, 4 ) );
+	
+	var sheets = google.sheets('v4');
+	sheets.spreadsheets.values.update(request, function(err, response) {
+		if (err) {			
+			console.log('SpeadsheetRow.save(): ERROR: ' + err);
+			console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+			return cb(err);
+		} else {		
+			console.log('SpeadsheetRow.save(): SUCCESS: ');
+			console.log( JSON.stringify(response, null, 4) );
+						
+			cb(null, null);	
+		}
+	});        
+  }
+
+	/*
+	//## OLD:
     //API for edits is very strict with the XML it accepts
     //So we just do a find replace on the original XML.
     //It's dumb, but I couldnt get any JSON->XML conversion to work reliably    
@@ -631,8 +578,8 @@ var SpreadsheetRow = function( spreadsheet, rowIdx, data, header){
         }
     });
     spreadsheet.makeFeedRequest( self['_links']['edit'], 'PUT', data_xml, cb );
-  }
-  */
+  }*/
+  
 	
   /*
   self.del = function( cb ){
@@ -791,6 +738,20 @@ var sanitizeHeaderStr = function(strIn) {
 	var strOut = strIn.replace(/[^0-9a-zA-Z]/gi, '').toLowerCase();
 	return strOut;
 }
+
+
+var XYtoA1 = function (x, y) {
+	var os = '';
+	
+	// X
+	os += String.fromCharCode(65 + n);		// Up to 25/Z
+	
+	// Y
+	os += (y+1);
+	
+	return os;
+}
+
 
 //## Remove?
 var xmlSafeValue = function(val){
