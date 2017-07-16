@@ -328,10 +328,19 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 		
 			var rows = [];
 			var entries = forceArray( response.values );
-			var i=0;
-			entries.forEach( function( row_data ) {
-				rows.push( new SpreadsheetRow( self, row_data, null ) ); //## TODO
-			});
+			
+			// Find header
+			var header = [];
+			if (entries.length > 0) {
+				header = entries[0];
+			}
+			
+			// Populate spreadsheet rows
+			for (var rowNum=0; rowNum<entries.length; rowNum++) {
+				rows.push( new SpreadsheetRow( self, rowNum, entries[rowNum], header ) ); //## TODO
+			}
+			
+			// Callback
 			cb(null, rows);	
 		}
 	});
@@ -528,12 +537,15 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
       cb();
     });
   }
+  
   /*
   this.del = function(cb){
     spreadsheet.makeFeedRequest(self['_links']['edit'], 'DELETE', null, cb);
   }
   */
 
+  //## Not required?
+  /*
   this.setHeaderRow = function(values, cb) {
     if ( !cb ) cb = function(){};
     if (!values) return cb();
@@ -554,13 +566,24 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
       self.bulkUpdateCells(cells, cb);
     });
   }
+  */
 }
 
 // Storage class for a spreadsheet row
 //## Note: 'xml' is unused
-var SpreadsheetRow = function( spreadsheet, data, xml){
+var SpreadsheetRow = function( spreadsheet, rowIdx, data, header){
   var self = this;
+  this.rowIdx = rowIdx;
   this.values = data;
+  this.header = header;
+  
+  // Create map
+  this.map = {};
+  for (var i=0; i<header.length; i++) {
+	var sanitizedLabel = sanitizeHeaderStr(header[i]);
+	this.map[sanitizedLabel] = this.values[i];
+  }
+  
   
   //self['_xml'] = xml;		// Depricate
     
@@ -762,6 +785,14 @@ var forceArray = function(val) {
   if ( !val ) return [];
   return [ val ];
 }
+
+// Remove spaces and non-alphanumeric characters from a string
+var sanitizeHeaderStr = function(strIn) {
+	var strOut = strIn.replace(/[^0-9a-zA-Z]/gi, '').toLowerCase();
+	return strOut;
+}
+
+//## Remove?
 var xmlSafeValue = function(val){
   if ( val == null ) return '';
   return String(val).replace(/&/g, '&amp;')
@@ -771,6 +802,7 @@ var xmlSafeValue = function(val){
       .replace(/\n/g,'&#10;')
       .replace(/\r/g,'&#13;');
 }
+//## Remove?
 var xmlSafeColumnName = function(val){
   if (!val) return '';
   return String(val).replace(/[\s_]+/g, '')
