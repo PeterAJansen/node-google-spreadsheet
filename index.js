@@ -5,9 +5,11 @@ var http = require("http");
 var querystring = require("querystring");
 var _ = require('lodash');
 var GoogleAuth = require("google-auth-library");
+var google = require('googleapis');
+
 
 var GOOGLE_FEED_URL = "https://spreadsheets.google.com/feeds/";
-var GOOGLE_AUTH_SCOPE = ["https://spreadsheets.google.com/feeds"];
+var GOOGLE_AUTH_SCOPE = ['https://www.googleapis.com/auth/spreadsheets'];
 
 var REQUIRE_AUTH_MESSAGE = 'You must authenticate to modify sheet data';
 
@@ -24,6 +26,8 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
   var auth_client = new GoogleAuth();
   var jwt_client;
 
+  var sheets = google.sheets('v4');
+  
   options = options || {};
 
   var xml_parser = new xml2js.Parser({
@@ -93,7 +97,9 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
     }
   }
 
+  
   // This method is used internally to make all requests
+  //## OLD: This is replaced internally with calls to the Google Sheets API
   this.makeFeedRequest = function( url_params, method, query_or_data, cb ){
     var url;
     var headers = {};
@@ -177,7 +183,44 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 
 
   // public API methods
-  this.getInfo = function( cb ){
+  //## Complete? (except for worksheets)
+  this.getInfo = function( cb ){	
+	sheets.spreadsheets.get({
+	  auth: jwt_client,
+	  spreadsheetId: ss_key,
+	  fields:'',
+	}, function(err, response) {
+	if (err) {
+		console.log('ERROR: ' + err);
+		return cb(err);
+	} else {
+		//console.log('success');
+		console.log( JSON.stringify(response, null, 4) );
+		//console.log(response.sheets);
+
+		var ss_data = {
+			id: response.spreadsheetUrl,
+			title: response.properties.title,
+			//updated: data.updated,	// no longer used
+			//author: data.author,		// no longer used
+			worksheets: []
+		}
+	
+		var worksheets = forceArray(response.sheets);		// not sure what this does -- seems to just initialize the array to []
+		worksheets.forEach( function( ws_data ) {
+			ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) ); //## TODO
+		});
+		self.info = ss_data;
+		self.worksheets = ss_data.worksheets;
+		cb( null, ss_data );
+	
+	}
+	});
+	
+	
+	
+	//## OLD:
+	/*
     self.makeFeedRequest( ["worksheets", ss_key], 'GET', null, function(err, data, xml) {
       if ( err ) return cb( err );
       if (data===true) {
@@ -190,6 +233,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
         author: data.author,
         worksheets: []
       }
+      
       var worksheets = forceArray(data.entry);
       worksheets.forEach( function( ws_data ) {
         ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) );
@@ -198,10 +242,12 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       self.worksheets = ss_data.worksheets;
       cb( null, ss_data );
     });
+    */
   }
 
+  
   // NOTE: worksheet IDs start at 1
-
+  /*
   this.addWorksheet = function( opts, cb ) {
     // make opts optional
     if (typeof opts == 'function'){
@@ -251,6 +297,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
     if (sheet_id instanceof SpreadsheetWorksheet) return sheet_id.del(cb);
     self.makeFeedRequest( GOOGLE_FEED_URL + "worksheets/" + ss_key + "/private/full/" + sheet_id, 'DELETE', null, cb );
   }
+  */
 
   this.getRows = function( worksheet_id, opts, cb ){
     // the first row is used as titles/keys and is not included
@@ -261,7 +308,37 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       opts = {};
     }
 
+    //## NEW:
+    var A1Range = '' + worksheet_id;		// e.g. "Sheet1!A1:B2"
+	var getReq = {
+		auth: jwt_client,
+		spreadsheetId: ss_key,
+		range: A1Range
+	};
+	sheets.spreadsheets.values.get(getReq, function(err, response) {
+		if (err) {			
+			console.log('getRows: ERROR: ' + err);
+			console.log('request:\n\n ' + JSON.stringify( getReq, null, 4 ));
+			return cb(err);
+		} else {		
+			console.log( JSON.stringify(response, null, 4) );
 
+			var range = response.range;						// e.g. "range": "'Class Data'!A1:Z988",
+			var majorDimension = response.majorDimension;	// e.g. "majorDimension": "ROWS",
+		
+			var rows = [];
+			var entries = forceArray( response.values );
+			var i=0;
+			entries.forEach( function( row_data ) {
+				rows.push( new SpreadsheetRow( self, row_data, null ) ); //## TODO
+			});
+			cb(null, rows);	
+		}
+	});
+    
+    
+    //## OLD:
+	/* 
     var query  = {}
 
     if ( opts.offset ) query["start-index"] = opts.offset;
@@ -303,8 +380,10 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       });
       cb(null, rows);
     });
+    */
   }
 
+  /*
   this.addRow = function( worksheet_id, data, cb ){
     var data_xml = '<entry xmlns="http://www.w3.org/2005/Atom" xmlns:gsx="http://schemas.google.com/spreadsheets/2006/extended">' + "\n";
     Object.keys(data).forEach(function(key) {
@@ -320,6 +399,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       cb(null, row);
     });
   }
+  */
 
   this.getCells = function (worksheet_id, opts, cb) {
     // opts is optional
@@ -356,20 +436,24 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
   var self = this;
   var links;
 
-  self.url = data.id;
-  self.id = data.id.substring( data.id.lastIndexOf("/") + 1 );
-  self.title = data.title;
-  self.rowCount = parseInt(data['gs:rowCount']);
-  self.colCount = parseInt(data['gs:colCount']);
+  //self.url = data.id;											//## Unused?
+  //self.id = data.properties.index;							//## Unused?
+  self.index = data.properties.index;							//## NEW
+  self.title = data.properties.title;							//## OK
+  self.rowCount = data.properties.gridProperties.rowCount;		//## OK
+  self.colCount = data.properties.gridProperties.columnCount;	//## OK
 
+  // _links unused
+  /*
   self['_links'] = [];
   links = forceArray( data.link );
   links.forEach( function( link ){
     self['_links'][ link['$']['rel'] ] = link['$']['href'];
   });
   self['_links']['cells'] = self['_links']['http://schemas.google.com/spreadsheets/2006#cellsfeed'];
-  self['_links']['bulkcells'] = self['_links']['cells']+'/batch';
-
+  self['_links']['bulkcells'] = self['_links']['cells']+'/batch';  
+  
+  
   function _setInfo(opts, cb) {
     cb = cb || _.noop;
     var xml = ''
@@ -408,16 +492,22 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
       })
     });
   }
+  */
+  // stopped here
+  
+  
 
   this.getRows = function(opts, cb){
-    spreadsheet.getRows(self.id, opts, cb);
+    spreadsheet.getRows(self.title, opts, cb);
   }
   this.getCells = function(opts, cb) {
-    spreadsheet.getCells(self.id, opts, cb);
+    spreadsheet.getCells(self.title, opts, cb);
   }
+  /*
   this.addRow = function(data, cb){
-    spreadsheet.addRow(self.id, data, cb);
+    spreadsheet.addRow(self.title, data, cb);
   }
+  */
   this.bulkUpdateCells = function(cells, cb) {
     if ( !cb ) cb = function(){};
 
@@ -438,9 +528,11 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
       cb();
     });
   }
+  /*
   this.del = function(cb){
     spreadsheet.makeFeedRequest(self['_links']['edit'], 'DELETE', null, cb);
   }
+  */
 
   this.setHeaderRow = function(values, cb) {
     if ( !cb ) cb = function(){};
@@ -464,9 +556,16 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
   }
 }
 
-var SpreadsheetRow = function( spreadsheet, data, xml ){
+// Storage class for a spreadsheet row
+//## Note: 'xml' is unused
+var SpreadsheetRow = function( spreadsheet, data, xml){
   var self = this;
-  self['_xml'] = xml;
+  this.values = data;
+  
+  //self['_xml'] = xml;		// Depricate
+    
+  /*
+  //## I am not entirely sure what this does, but I think it's to make a dictionary out of the data using the row headers
   Object.keys(data).forEach(function(key) {
     var val = data[key];
     if(key.substring(0, 4) === "gsx:") {
@@ -492,13 +591,13 @@ var SpreadsheetRow = function( spreadsheet, data, xml ){
       }
     }
   }, this);
+  */
 
-  self.save = function( cb ){
-    /*
-    API for edits is very strict with the XML it accepts
-    So we just do a find replace on the original XML.
-    It's dumb, but I couldnt get any JSON->XML conversion to work reliably
-    */
+  /*
+  self.save = function( cb ){    
+    //API for edits is very strict with the XML it accepts
+    //So we just do a find replace on the original XML.
+    //It's dumb, but I couldnt get any JSON->XML conversion to work reliably    
 
     var data_xml = self['_xml'];
     // probably should make this part more robust?
@@ -510,10 +609,15 @@ var SpreadsheetRow = function( spreadsheet, data, xml ){
     });
     spreadsheet.makeFeedRequest( self['_links']['edit'], 'PUT', data_xml, cb );
   }
+  */
+	
+  /*
   self.del = function( cb ){
     spreadsheet.makeFeedRequest( self['_links']['edit'], 'DELETE', null, cb );
   }
+  */
 }
+
 
 var SpreadsheetCell = function( spreadsheet, worksheet_id, data ){
   var self = this;
