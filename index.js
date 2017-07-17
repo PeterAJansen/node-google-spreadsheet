@@ -252,31 +252,45 @@ var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header) 
 	this._ss_key = ss_key;
 	this._worksheetId = worksheetId;
 	this._rowIdx = rowIdx;  
+	this._originalHeaderLabels = header;
 	this._header = header;
-  
-	// Create map
-	for (var i=0; i<header.length; i++) {
-		var sanitizedLabel = sanitizeHeaderStr(header[i]);
-		this[sanitizedLabel] = data[i];
+	this.values = data;
+	
+	// Sanitize header labels
+	for (var i=0; i<this._header.length; i++) {
+		this._header = sanitizeHeaderStr(this._header[i]);
+	}
+	
+	// Setter based on giving the key (header column) name
+	self.setValue = function (key, value) {
+		for (var i=0; i<header.length; i++) {
+			if (header[i] == key) {
+				this.values[i] = value;
+				return;
+			}
+		}
+	}
+	
+	// Getter baed on giving the key (header column) name
+	self.getValue = function(key) {
+		for (var i=0; i<header.length; i++) {
+			if (header[i] == key) {				
+				return this.values[i];
+			}
+		}
+		return null;
 	}
   
 
 	// Save this row to Google Sheets
-	self.save = function( cb ) {    
-
-		// Convert from map to flat values array
-		var values = [];
-		for (var i=0; i<this._header.length; i++) {
-			var sanitizedLabel = sanitizeHeaderStr(this._header[i]);
-			values.push( this[sanitizedLabel] );
-		}		
+	self.save = function( cb ) {    		
 	  
 		// Create ValueRange GoogleSheets API v4 structure for this row	
 		var A1Range = '' + this._worksheetId + '!' + (this._rowIdx+1) + ':' + (this._rowIdx+1);		// e.g. "Sheet1!A1:B2"
 		var valueRange = {
 			range: A1Range,
 			majorDimension: 'ROWS',
-			values: [values],
+			values: [this.values],
 		};
 	
 		var request = {
@@ -320,36 +334,36 @@ var SpreadsheetCol = function( auth, ss_key, worksheetId, colIdx, data) {
 	// Save this column to Google Sheets
 	self.save = function( cb ) {    
 	  
-	// Create ValueRange GoogleSheets API v4 structure for this row	
-	var A1Range = '' + this._worksheetId + '!' + IntToA1(colIdx) + ':' + IntToA1(colIdx);	// e.g. "Sheet1!A1:B2"		
-	var valueRange = {
-		range: A1Range,
-		majorDimension: 'COLUMNS',
-		values: [ [this._originalHeaderLabel].concat(this.values) ],	// Add header label back on
-	};
+		// Create ValueRange GoogleSheets API v4 structure for this row	
+		var A1Range = '' + this._worksheetId + '!' + IntToA1(colIdx) + ':' + IntToA1(colIdx);	// e.g. "Sheet1!A1:B2"		
+		var valueRange = {
+			range: A1Range,
+			majorDimension: 'COLUMNS',
+			values: [ [this._originalHeaderLabel].concat(this.values) ],	// Add header label back on
+		};
 	
-	var request = {
-		auth: this._auth,
-		spreadsheetId: this._ss_key,
-		range: A1Range,
-		valueInputOption: 'RAW',
-		resource: valueRange
-	}
-	
-	//console.log("\n\n* Save Request: \n" + JSON.stringify( request, null, 4 ) + "\n\n");
-	
-	var sheets = google.sheets('v4');
-	sheets.spreadsheets.values.update(request, function(err, response) {
-		if (err) {			
-			console.log('SpeadsheetCol.save(): ERROR: ' + err);			
-			return cb(err);
-		} else {		
-			//console.log('SpeadsheetCol.save(): SUCCESS: ');
-			//console.log( JSON.stringify(response, null, 4) );						
-			return cb(null);	
+		var request = {
+			auth: this._auth,
+			spreadsheetId: this._ss_key,
+			range: A1Range,
+			valueInputOption: 'RAW',
+			resource: valueRange
 		}
-	});        
-  }  
+	
+		//console.log("\n\n* Save Request: \n" + JSON.stringify( request, null, 4 ) + "\n\n");
+	
+		var sheets = google.sheets('v4');
+		sheets.spreadsheets.values.update(request, function(err, response) {
+			if (err) {			
+				console.log('SpeadsheetCol.save(): ERROR: ' + err);			
+				return cb(err);
+			} else {		
+				//console.log('SpeadsheetCol.save(): SUCCESS: ');
+				//console.log( JSON.stringify(response, null, 4) );						
+				return cb(null);	
+			}
+		});        
+	}  
 	
 }
 

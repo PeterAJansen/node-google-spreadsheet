@@ -12,7 +12,8 @@ var creds = require('./myproject_service_account.json');
             doc.useServiceAccountAuth(creds, next);
         }, function getTsData(next) {
             doc.getInfo(function(err, info) {
-                console.log("Loaded google sheet: " + info.title);                
+                console.log("Loaded google sheet: " + info.title);
+                
                 next(null, info.worksheets);
             });
         }, function(sheets, next) {
@@ -28,9 +29,11 @@ var creds = require('./myproject_service_account.json');
                     
                     // Create new (blank) single table
                     var tableName = sheet.title
-                    var headerRow = Object.keys(rows[0]);                                        
+                    var headerRow = Object.keys(rows[0]);
+                                        
                     
-                    // Store each row in the tablestore                                        
+                    // Store each row in the tablestore                    
+                    
 					for (var j=0; j<rows.length; j++) {
 						var row = rows[j];
                         //oneTable.addRow( row );
@@ -39,7 +42,11 @@ var creds = require('./myproject_service_account.json');
 						// Save test
 						if ((row._worksheetId == "Sheet3") && (row._rowIdx == 1)) {
 							console.log("Save Test");
-							row["test111"] += "1";
+							//row["test111"] += "1";
+							// Write by index
+							//row.values[0] += "1";		
+							// Write by header key
+							row.setValue("test111", row.getValue("test111") + "Z");
 							row.save( function (err) {
 								if (err) {
 									console.log(err)									
@@ -48,10 +55,12 @@ var creds = require('./myproject_service_account.json');
 						}
                     }
 																		
-                    next();                                        
+                    next();
+                    
+                    
                 });  
 				
-				
+				/*
 				// Column
 				console.log("COLUMN:\n");
 				sheet.getColumn(0, function(err, col) {
@@ -71,7 +80,8 @@ var creds = require('./myproject_service_account.json');
 						
 					}
 				});
-						
+				*/						
+				
             }					
 			
         }
