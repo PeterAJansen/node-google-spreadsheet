@@ -21,7 +21,7 @@ var creds = require('./myproject_service_account.json');
 				var sheet = sheets[i];
 				
 				// Rows
-				/*
+				
                 sheet.getRows({offset: 1}, function(err, rows) {
                     if (err) console.log(err);
                     console.log(sheet.title + " (" + sheet.rowCount + "x" + sheet.colCount + ") --> Read " + rows.length + " rows");                    
@@ -50,7 +50,7 @@ var creds = require('./myproject_service_account.json');
 																		
                     next();                                        
                 });  
-				*/
+				
 				
 				// Column
 				console.log("COLUMN:\n");
