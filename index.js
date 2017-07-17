@@ -97,7 +97,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
     }
   }
 
-  
+  /*
   // This method is used internally to make all requests
   //## OLD: This is replaced internally with calls to the Google Sheets API
   this.makeFeedRequest = function( url_params, method, query_or_data, cb ){
@@ -179,6 +179,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
       }
     });
   }
+  */
 
 
 
@@ -284,20 +285,20 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 
     // Form request
     var A1Range = '' + worksheet_id;		// e.g. "Sheet1!A1:B2"
-	var getReq = {
+	var request = {
 		auth: jwt_client,
 		spreadsheetId: ss_key,
 		range: A1Range,		
 	};
 	
 	// Request data from Google Sheets
-	sheets.spreadsheets.values.get(getReq, function(err, response) {
+	sheets.spreadsheets.values.get(request, function(err, response) {
 		if (err) {			
 			console.log('getRows: ERROR: ' + err);
-			console.log('request:\n\n ' + JSON.stringify( getReq, null, 4 ));
+			console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
 			return cb(err);
 		} else {		
-			console.log( JSON.stringify(response, null, 4) );
+			//console.log( JSON.stringify(response, null, 4) );
 
 			var range = response.range;						// e.g. "range": "'Class Data'!A1:Z988",
 			var majorDimension = response.majorDimension;	// e.g. "majorDimension": "ROWS",
@@ -323,6 +324,44 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 	});        
   }
 
+  this.getColumn = function( worksheet_id, colNum, cb ){
+    // The first row is used as titles/keys and is not included (## is now included)
+
+    // Form request
+    var A1Range = '' + worksheet_id + '!' + IntToA1(colNum) + ':' + IntToA1(colNum);	// e.g. "Sheet1!A1:B2"
+	var request = {
+		auth: jwt_client,
+		spreadsheetId: ss_key,
+		range: A1Range,	
+		majorDimension: 'COLUMNS',
+	};
+	
+	// Request data from Google Sheets
+	sheets.spreadsheets.values.get(request, function(err, response) {
+		if (err) {			
+			console.log('getColumn: ERROR: ' + err);
+			console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+			return cb(err);
+		} else {		
+			//console.log( JSON.stringify(response, null, 4) );
+
+			var range = response.range;						// e.g. "range": "'Class Data'!A1:Z988",
+			var majorDimension = response.majorDimension;	// e.g. "majorDimension": "ROWS",
+		
+			// Read column
+			//var cols = [];
+			var entries = forceArray( response.values );
+						
+			// Populate spreadsheet rows			
+			var col = new SpreadsheetCol( jwt_client, ss_key, worksheet_id, colNum, entries );			
+			
+			// Callback
+			cb(null, col);	
+		}
+	});        
+  }
+  
+  
   /*
   this.addRow = function( worksheet_id, data, cb ){
     var data_xml = '<entry xmlns="http://www.w3.org/2005/Atom" xmlns:gsx="http://schemas.google.com/spreadsheets/2006/extended">' + "\n";
@@ -440,6 +479,11 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
   this.getRows = function(opts, cb){
     spreadsheet.getRows(self.title, opts, cb);
   }
+  
+  this.getColumn = function(colNum, cb) {
+	spreadsheet.getColumn(self.title, colNum, cb);  
+  }
+  
   this.getCells = function(opts, cb) {
     spreadsheet.getCells(self.title, opts, cb);
   }
@@ -500,26 +544,24 @@ var SpreadsheetWorksheet = function( spreadsheet, data ){
   */
 }
 
+
 // Storage class for a spreadsheet row
-//## Note: 'xml' is unused
-var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header){
+var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header) {
   var self = this;
   this._auth = auth;
   this._ss_key = ss_key;
   this._worksheetId = worksheetId;
-  this._rowIdx = rowIdx;
-  //this.values = data;
+  this._rowIdx = rowIdx;  
   this._header = header;
   
   // Create map
-  //this.map = {};
   for (var i=0; i<header.length; i++) {
 	var sanitizedLabel = sanitizeHeaderStr(header[i]);
 	this[sanitizedLabel] = data[i];
   }
   
 
-  // Save this row to Google Maps
+  // Save this row to Google Sheets
   self.save = function( cb ) {    
 
 	// Convert from map to flat values array
@@ -551,42 +593,68 @@ var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header){
 	var sheets = google.sheets('v4');
 	sheets.spreadsheets.values.update(request, function(err, response) {
 		if (err) {			
-			console.log('SpeadsheetRow.save(): ERROR: ' + err);
-			console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+			console.log('SpeadsheetRow.save(): ERROR: ' + err);			
 			return cb(err);
 		} else {		
-			console.log('SpeadsheetRow.save(): SUCCESS: ');
-			console.log( JSON.stringify(response, null, 4) );
-						
-			cb(null, null);	
+			//console.log('SpeadsheetRow.save(): SUCCESS: ');
+			//console.log( JSON.stringify(response, null, 4) );						
+			return cb(null);	
 		}
 	});        
-  }
-
-	/*
-	//## OLD:
-    //API for edits is very strict with the XML it accepts
-    //So we just do a find replace on the original XML.
-    //It's dumb, but I couldnt get any JSON->XML conversion to work reliably    
-
-    var data_xml = self['_xml'];
-    // probably should make this part more robust?
-    data_xml = data_xml.replace('<entry>', "<entry xmlns='http://www.w3.org/2005/Atom' xmlns:gsx='http://schemas.google.com/spreadsheets/2006/extended'>");
-      Object.keys( self ).forEach( function(key) {
-        if (key.substr(0,1) != '_' && typeof( self[key] == 'string') ){
-          data_xml = data_xml.replace( new RegExp('<gsx:'+xmlSafeColumnName(key)+">([\\s\\S]*?)</gsx:"+xmlSafeColumnName(key)+'>'), '<gsx:'+xmlSafeColumnName(key)+'>'+ xmlSafeValue(self[key]) +'</gsx:'+xmlSafeColumnName(key)+'>');
-        }
-    });
-    spreadsheet.makeFeedRequest( self['_links']['edit'], 'PUT', data_xml, cb );
-  }*/
-  
+  }  
 	
-  /*
-  self.del = function( cb ){
-    spreadsheet.makeFeedRequest( self['_links']['edit'], 'DELETE', null, cb );
-  }
-  */
 }
+
+// Storage class for a spreadsheet row
+var SpreadsheetCol = function( auth, ss_key, worksheetId, colIdx, data) {
+  var self = this;
+  this._auth = auth;
+  this._ss_key = ss_key;
+  this._worksheetId = worksheetId;
+  this._colIdx = colIdx;  
+  this._originalHeaderLabel = '';
+  if (data[0].length > 0) this._originalHeaderLabel = data[0][0];
+  this._header = sanitizeHeaderStr(this._originalHeaderLabel);
+  this.values = data[0].slice(1);  // trim off header label
+
+  // Save this row to Google Sheets
+  self.save = function( cb ) {    
+	  
+	// Create ValueRange GoogleSheets API v4 structure for this row	
+	var A1Range = '' + this._worksheetId + '!' + IntToA1(colIdx) + ':' + IntToA1(colIdx);	// e.g. "Sheet1!A1:B2"		
+	var valueRange = {
+		range: A1Range,
+		majorDimension: 'COLUMNS',
+		values: [ [this._originalHeaderLabel].concat(this.values) ],		// Add back on header label
+	};
+	
+	var request = {
+		auth: this._auth,
+		spreadsheetId: this._ss_key,
+		range: A1Range,
+		valueInputOption: 'RAW',
+		resource: valueRange
+	}
+	
+	console.log("\n\n* Save Request: \n" + JSON.stringify( request, null, 4 ) + "\n\n");
+	
+	var sheets = google.sheets('v4');
+	sheets.spreadsheets.values.update(request, function(err, response) {
+		if (err) {			
+			console.log('SpeadsheetCol.save(): ERROR: ' + err);			
+			return cb(err);
+		} else {		
+			//console.log('SpeadsheetCol.save(): SUCCESS: ');
+			//console.log( JSON.stringify(response, null, 4) );						
+			return cb(null);	
+		}
+	});        
+  }  
+	
+}
+
+
+
 
 
 var SpreadsheetCell = function( spreadsheet, worksheet_id, data ){
@@ -740,11 +808,12 @@ var sanitizeHeaderStr = function(strIn) {
 }
 
 
+// Convert from X/Y notation to A1 notation
 var XYtoA1 = function (x, y) {
-	var os = '';
+	var os = '';	
 	
-	// X
-	os += String.fromCharCode(65 + n);		// Up to 25/Z
+	// X	
+	os += IntToA1(x);
 	
 	// Y
 	os += (y+1);
@@ -752,7 +821,13 @@ var XYtoA1 = function (x, y) {
 	return os;
 }
 
+var IntToA1 = function(num) {
+	var os = '';
+	os += String.fromCharCode(65+num);		// Up to 25/Z
+	return os;
+}
 
+/*
 //## Remove?
 var xmlSafeValue = function(val){
   if ( val == null ) return '';
@@ -769,3 +844,4 @@ var xmlSafeColumnName = function(val){
   return String(val).replace(/[\s_]+/g, '')
       .toLowerCase();
 }
+*/
