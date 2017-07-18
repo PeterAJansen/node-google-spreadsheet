@@ -102,7 +102,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 				return cb(err);
 			} else {
 				//console.log('success');
-				console.log( JSON.stringify(response, null, 4) );
+				//console.log( JSON.stringify(response, null, 4) );
 				//console.log(response.sheets);
 
 				var ss_data = {
@@ -143,7 +143,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 		sheets.spreadsheets.values.get(request, function(err, response) {
 			if (err) {			
 				console.log('getRows: ERROR: ' + err);
-				console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+				//console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
 				return cb(err);
 			} else {		
 				//console.log( JSON.stringify(response, null, 4) );
@@ -159,7 +159,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 				var header = [];
 				if (entries.length > 0) {
 					header = entries[0];
-				}
+				}				
 			
 				// Populate spreadsheet rows
 				for (var rowNum=0; rowNum<entries.length; rowNum++) {
@@ -253,18 +253,23 @@ var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header) 
 	this._worksheetId = worksheetId;
 	this._rowIdx = rowIdx;  
 	this._originalHeaderLabels = header;
-	this._header = header;
+	this._header = [];
 	this.values = data;
-	
-	// Sanitize header labels
-	for (var i=0; i<this._header.length; i++) {
-		this._header = sanitizeHeaderStr(this._header[i]);
+		
+	// Step 1: Automatically grow values array to be the same size as the header
+	while (this.values.length < header.length) {
+		this.values.push("");
 	}
+	
+	// Step 1: Sanitize header labels
+	for (var i=0; i<header.length; i++) {
+		this._header.push( sanitizeHeaderStr(header[i]) );
+	}			
 	
 	// Setter based on giving the key (header column) name
 	self.setValue = function (key, value) {
 		for (var i=0; i<header.length; i++) {
-			if (header[i] == key) {
+			if (this._header[i] == key) {
 				this.values[i] = value;
 				return;
 			}
@@ -273,8 +278,8 @@ var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header) 
 	
 	// Getter baed on giving the key (header column) name
 	self.getValue = function(key) {
-		for (var i=0; i<header.length; i++) {
-			if (header[i] == key) {				
+		for (var i=0; i<this._header.length; i++) {
+			if (this._header[i] == key) {				
 				return this.values[i];
 			}
 		}
@@ -297,7 +302,8 @@ var SpreadsheetRow = function( auth, ss_key, worksheetId, rowIdx, data, header) 
 			auth: this._auth,
 			spreadsheetId: this._ss_key,
 			range: A1Range,
-			valueInputOption: 'RAW',
+			//valueInputOption: 'RAW',
+			valueInputOption: 'USER_ENTERED',
 			resource: valueRange
 		}
 	
