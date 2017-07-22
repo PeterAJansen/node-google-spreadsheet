@@ -113,7 +113,7 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 	
 				var worksheets = forceArray(response.sheets);		// not sure what this does -- seems to just initialize the array to []
 				worksheets.forEach( function( ws_data ) {
-					ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data ) );
+					ss_data.worksheets.push( new SpreadsheetWorksheet( self, ws_data, null ) );
 				});
 				self.info = ss_data;
 				self.worksheets = ss_data.worksheets;
@@ -219,13 +219,96 @@ var GoogleSpreadsheet = function( ss_key, auth_id, options ){
 	}
 	*/
 	
+	// Get all rows from multiple sheets
+	this.getSheetRowsBatch = function(worksheetIds, cb) {
+		
+		// Form batch ranges
+		var A1Ranges = [];
+		for (var i in worksheetIds) {
+			var A1Range = '' + worksheetIds[i];		// e.g. "Sheet1!A1:B2"
+			A1Ranges.push( A1Range );
+		}						
+		
+		// Form request
+		var request = {
+			auth: jwt_client,
+			spreadsheetId: ss_key,
+			ranges: A1Ranges,		
+		};
+				
+		console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+		
+		//console.log('A1Ranges: ' + A1Ranges);
+		
+		// Request data from Google Sheets
+		sheets.spreadsheets.values.batchGet(request, function(err, response) {
+			if (err) {			
+				console.log('getSheetRowsBatch: ERROR: ' + err);
+				//console.log('request:\n\n ' + JSON.stringify( request, null, 4 ));
+				return cb(err);
+			} else {		
+				console.log( JSON.stringify(response, null, 4) );
+				var sheetsOut = [];
+				
+				// Response data is in valueRanges array
+				var valueRanges = response.valueRanges;				
+				
+				for (var i in valueRanges) {
+					var oneSheet = valueRanges[i]; 
+				
+					var range = oneSheet.range;						// e.g. "range": "'Class Data'!A1:Z988",
+					var majorDimension = oneSheet.majorDimension;	// e.g. "majorDimension": "ROWS",
+					var worksheetId = range.substr(0, range.indexOf('!'));
+					if ((worksheetId.charAt(0) == "'") && (worksheetId.charAt(worksheetId.length-1) == "'")) {
+						worksheetId = worksheetId.substr(1, worksheetId.length-2);
+					}
+		
+					console.log(worksheetId);
+		
+					// Read rows
+					var rows = [];
+					var entries = forceArray( oneSheet.values );
+			
+					// Find header
+					var header = [];
+					if (entries.length > 0) {
+						header = entries[0];
+					}				
+			
+					// Populate spreadsheet rows
+					for (var rowNum=0; rowNum<entries.length; rowNum++) {
+						rows.push( new SpreadsheetRow( jwt_client, ss_key, worksheetId, rowNum, entries[rowNum], header ) ); //## TODO
+					}
+				
+					// Pack into a sheet object
+					// Create a partially populated Spreadsheet Worksheet function (so that, e.g., getColumn still works)
+					var wsData = {
+						properties: {
+							index: -1,
+							title: worksheetId,
+							gridProperties: {
+								rowCount: -1,
+								columnCount: -1
+							}
+						}													
+					}
+					sheetsOut.push( new SpreadsheetWorksheet( self, wsData, rows ) );
+				}
+				
+				// Callback
+				cb(null, sheetsOut);	
+			}
+		});        
+
+	}
+	
 };
 
 
 
 
 // Classes
-var SpreadsheetWorksheet = function( spreadsheet, data ) {
+var SpreadsheetWorksheet = function( spreadsheet, data, rows ) {
 	var self = this;
 
 	self.index = data.properties.index;
@@ -233,6 +316,7 @@ var SpreadsheetWorksheet = function( spreadsheet, data ) {
 	self.rowCount = data.properties.gridProperties.rowCount;
 	self.colCount = data.properties.gridProperties.columnCount;
     
+	self.rows = rows;		// Prefetched rows (from a batch get)
 
 	this.getRows = function(opts, cb){
 		spreadsheet.getRows(self.title, opts, cb);
